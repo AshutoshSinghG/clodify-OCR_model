@@ -13,24 +13,14 @@ function generateCorrectionVariants(text) {
 
 async function recognizeWithConfig(imageBuffer, psmMode) {
     const worker = await Tesseract.createWorker('eng', 1, {
-        logger: () => { } // Suppress progress logging for cleaner output
+        logger: () => { } // Suppress logging
     });
 
     try {
+        // Set only runtime parameters (not initialization parameters)
         await worker.setParameters({
             tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
             tessedit_pageseg_mode: psmMode,
-            tessedit_ocr_engine_mode: Tesseract.OEM.LSTM_ONLY,
-            // Additional Tesseract parameters for better CAPTCHA recognition
-            classify_bln_numeric_mode: '0',
-            // Disable dictionary
-            load_system_dawg: '0',
-            load_freq_dawg: '0',
-            load_unambig_dawg: '0',
-            load_punc_dawg: '0',
-            load_number_dawg: '0',
-            load_fixed_length_dawgs: '0',
-            load_bigram_dawg: '0',
         });
 
         const { data: { text, confidence } } = await worker.recognize(imageBuffer);
@@ -41,7 +31,7 @@ async function recognizeWithConfig(imageBuffer, psmMode) {
 }
 
 async function recognizeWithTesseract(imageBuffer) {
-    // Try multiple PSM modes - order matters, best first
+    // Try multiple PSM modes
     const strategies = [
         { mode: Tesseract.PSM.SINGLE_LINE, name: 'LINE' },
         { mode: Tesseract.PSM.SINGLE_WORD, name: 'WORD' },
@@ -66,7 +56,7 @@ async function recognizeWithTesseract(imageBuffer) {
                 console.log(`    ${strategy.name}: "${cleaned}" (${confidence?.toFixed(1)}%)`);
             }
         } catch (err) {
-            // Silent fail, try next mode
+            console.log(`    ${strategy.name}: failed`);
         }
     }
 
@@ -102,13 +92,18 @@ async function recognizeWithTesseract(imageBuffer) {
 }
 
 async function recognizeText(imageBuffer) {
-    const result = await recognizeWithTesseract(imageBuffer);
-    return {
-        solution: result.text,
-        alternatives: result.variants,
-        confidence: result.confidence,
-        allResults: result.allResults
-    };
+    try {
+        const result = await recognizeWithTesseract(imageBuffer);
+        return {
+            solution: result.text,
+            alternatives: result.variants,
+            confidence: result.confidence,
+            allResults: result.allResults
+        };
+    } catch (error) {
+        console.error('  OCR error:', error.message);
+        throw error;
+    }
 }
 
 module.exports = {
