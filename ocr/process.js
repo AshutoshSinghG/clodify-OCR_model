@@ -1,130 +1,140 @@
 const sharp = require('sharp');
 
 /**
- * Preprocesses the CAPTCHA image to improve OCR accuracy
- * 
- * Standard preprocessing pipeline optimized for V vs W distinction
- * 
- * @param {string} base64Image - Base64 encoded image string
- * @returns {Promise<Buffer>} - Processed image buffer ready for OCR
+ * CAPTCHA-specific preprocessing with noise removal and morphological operations
  */
 async function preprocessImage(base64Image) {
     try {
-        // Remove data:image/png;base64, prefix if present
         const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
-
-        // Convert base64 to buffer
         const imageBuffer = Buffer.from(base64Data, 'base64');
 
-        // Get image metadata
         const metadata = await sharp(imageBuffer).metadata();
-        console.log(`  Original image: ${metadata.width}x${metadata.height}, format: ${metadata.format}`);
+        console.log(`  Original: ${metadata.width}x${metadata.height}`);
 
-        // Apply preprocessing pipeline using Sharp
-        // Enhanced for better V vs W distinction
+        // Multi-stage preprocessing optimized for CAPTCHAs
         const processedBuffer = await sharp(imageBuffer)
-            // Convert to grayscale (removes color noise)
+            // Stage 1: Convert to grayscale
             .grayscale()
 
-            // Increase contrast significantly - helps distinguish V from W
-            .linear(1.8, -(128 * 1.8) + 128)
+            // Stage 2: Very strong denoise using blur then sharpen
+            .blur(0.3)
 
-            // Normalize to improve contrast
+            // Stage 3: Extreme contrast for CAPTCHA text
+            .linear(2.5, -(128 * 2.5) + 128)
+
+            // Stage 4: Normalize histogram
             .normalize()
 
-            // Resize BEFORE thresholding (helps with OCR accuracy)
-            // Using larger size for better V/W distinction
+            // Stage 5: Scale up significantly for better character recognition  
             .resize({
-                width: 800,
-                height: 400,
+                width: 2000,
+                height: 1000,
                 fit: 'contain',
                 background: { r: 255, g: 255, b: 255, alpha: 1 },
                 kernel: 'lanczos3'
             })
 
-            // Apply threshold to create binary image
-            // Using lower threshold to preserve character details
-            .threshold(130)
+            // Stage 6: Binary thresholding - very aggressive
+            .threshold(110)
 
-            // Remove noise with median filter (smaller kernel to preserve details)
-            .median(1)
+            // Stage 7: Remove salt-and-pepper noise
+            .median(2)
 
-            // Sharpen to enhance edges of characters - critical for V vs W
+            // Stage 8: Extreme sharpening to make characters crisp
             .sharpen({
-                sigma: 2.5,
-                m1: 1.5,
-                m2: 1.5
+                sigma: 4.0,
+                m1: 3.0,
+                m2: 3.0
             })
 
-            // Output as PNG buffer
             .png()
             .toBuffer();
 
-        console.log(`  Preprocessed image: ${processedBuffer.length} bytes`);
-
+        console.log(`  Preprocessed: ${processedBuffer.length} bytes`);
         return processedBuffer;
     } catch (error) {
-        console.error('Error preprocessing image:', error.message);
-        throw new Error(`Image preprocessing failed: ${error.message}`);
+        console.error('Preprocessing error:', error.message);
+        throw new Error(`Preprocessing failed: ${error.message}`);
     }
 }
 
 /**
- * Aggressive preprocessing for difficult CAPTCHAs
- * 
- * @param {string} base64Image - Base64 encoded image string
- * @returns {Promise<Buffer>} - Processed image buffer
+ * Inverted preprocessing - sometimes CAPTCHAs work better inverted
  */
 async function preprocessImageAggressive(base64Image) {
     try {
         const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
         const imageBuffer = Buffer.from(base64Data, 'base64');
 
-        console.log('  Applying aggressive preprocessing...');
+        console.log('  Using inverted preprocessing');
 
         const processedBuffer = await sharp(imageBuffer)
             .grayscale()
-
-            // Very high contrast boost
-            .linear(2.0, -(128 * 2.0) + 128)
-
+            .blur(0.5)
+            .linear(3.0, -(128 * 3.0) + 128)
             .normalize()
-
-            // Resize first with high quality
             .resize({
-                width: 1000,
-                height: 500,
+                width: 2000,
+                height: 1000,
+                fit: 'contain',
+                background: { r: 0, g: 0, b: 0, alpha: 1 },
+                kernel: 'lanczos3'
+            })
+            // Inverted threshold
+            .negate()
+            .threshold(110)
+            .negate()
+            .median(1)
+            .sharpen({
+                sigma: 4.5,
+                m1: 3.5,
+                m2: 3.5
+            })
+            .png()
+            .toBuffer();
+
+        console.log(`  Inverted preprocessing: ${processedBuffer.length} bytes`);
+        return processedBuffer;
+    } catch (error) {
+        console.error('Aggressive preprocessing error:', error.message);
+        throw new Error(`Aggressive preprocessing failed: ${error.message}`);
+    }
+}
+
+/**
+ * Light preprocessing for already clean images
+ */
+async function preprocessImageLight(base64Image) {
+    try {
+        const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+
+        console.log('  Using minimal preprocessing');
+
+        const processedBuffer = await sharp(imageBuffer)
+            .grayscale()
+            .normalize()
+            .resize({
+                width: 1600,
+                height: 800,
                 fit: 'contain',
                 background: { r: 255, g: 255, b: 255, alpha: 1 },
                 kernel: 'lanczos3'
             })
-
-            // Moderate threshold to preserve details
-            .threshold(135)
-
-            // Minimal noise reduction
-            .median(1)
-
-            // Very strong sharpening for edge enhancement
-            .sharpen({
-                sigma: 3.0,
-                m1: 2.0,
-                m2: 2.0
-            })
-
+            .threshold(128)
+            .sharpen({ sigma: 2.0 })
             .png()
             .toBuffer();
 
-        console.log(`  Aggressive preprocessing complete: ${processedBuffer.length} bytes`);
-
+        console.log(`  Light preprocessing: ${processedBuffer.length} bytes`);
         return processedBuffer;
     } catch (error) {
-        console.error('Error in aggressive preprocessing:', error.message);
-        throw new Error(`Aggressive preprocessing failed: ${error.message}`);
+        throw new Error(`Light preprocessing failed: ${error.message}`);
     }
 }
 
 module.exports = {
     preprocessImage,
-    preprocessImageAggressive
+    preprocessImageAggressive,
+    preprocessImageLight
 };

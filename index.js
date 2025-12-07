@@ -89,40 +89,62 @@ app.post('/', async (req, res) => {
         fs.writeFileSync(debugPath, processedImage);
         console.log(`💾 Debug image saved: ${debugPath}`);
 
-        // Step 2: Perform OCR
-        console.log('\n[2/3] Performing OCR recognition...');
-        let ocrResult = await recognizeText(processedImage);
-        let solution = ocrResult.solution;
-        let alternatives = ocrResult.alternatives || [];
+        // Step 2: Try multiple preprocessing strategies
+        console.log('\n[2/4] Trying multiple preprocessing strategies...');
 
-        console.log(`✓ OCR completed: "${solution}"`);
-        if (alternatives.length > 0) {
-            console.log(`📋 Alternative interpretations: ${alternatives.join(', ')}`);
-        }
+        const { preprocessImageLight } = require('./ocr/process');
 
-        // Step 3: Validate and return
-        console.log('\n[3/3] Validating result...');
+        const strategies = [
+            { name: 'Balanced', preprocess: () => preprocessImage(captcha) },
+            { name: 'High-Contrast', preprocess: () => preprocessImageAggressive(captcha) },
+            { name: 'Light', preprocess: () => preprocessImageLight(captcha) }
+        ];
 
-        if (!solution || solution.length < 4) {
-            console.log('⚠ Primary OCR yielded insufficient result, trying aggressive preprocessing...');
+        let bestOcrResult = null;
+        let bestConfidence = 0;
+        let bestStrategyName = '';
 
-            // Fallback: try aggressive preprocessing
-            const processedImageAggressive = await preprocessImageAggressive(captcha);
-            const debugPathAggressive = `debug-${requestId}-aggressive.png`;
-            fs.writeFileSync(debugPathAggressive, processedImageAggressive);
-            console.log(`💾 Aggressive debug image saved: ${debugPathAggressive}`);
+        for (const strategy of strategies) {
+            try {
+                console.log(`\n  Testing ${strategy.name} strategy...`);
+                const processedImg = await strategy.preprocess();
 
-            ocrResult = await recognizeText(processedImageAggressive);
-            solution = ocrResult.solution;
-            alternatives = ocrResult.alternatives || [];
+                // Save debug image for this strategy
+                const debugPath = `debug-${requestId}-${strategy.name.toLowerCase()}.png`;
+                fs.writeFileSync(debugPath, processedImg);
+                console.log(`  💾 Saved: ${debugPath}`);
 
-            console.log(`✓ Aggressive OCR result: "${solution}"`);
-            if (alternatives.length > 0) {
-                console.log(`📋 Aggressive alternatives: ${alternatives.join(', ')}`);
+                // Run OCR
+                const ocrResult = await recognizeText(processedImg);
+                console.log(`  ${strategy.name} result: "${ocrResult.solution}" (conf: ${ocrResult.confidence?.toFixed(1)}%)`);
+
+                if (ocrResult.confidence > bestConfidence) {
+                    bestConfidence = ocrResult.confidence;
+                    bestOcrResult = ocrResult;
+                    bestStrategyName = strategy.name;
+                }
+            } catch (err) {
+                console.log(`  ${strategy.name} strategy failed: ${err.message}`);
             }
         }
 
-        // Smart correction: Prefer V over W in 4-letter words
+        if (!bestOcrResult) {
+            throw new Error('All preprocessing strategies failed');
+        }
+
+        console.log(`\n  ✓ Best strategy: ${bestStrategyName} with ${bestConfidence?.toFixed(1)}% confidence`);
+
+        let solution = bestOcrResult.solution;
+        let alternatives = bestOcrResult.alternatives || [];
+
+        // Step 3: Perform OCR
+        console.log('\n[3/4] OCR completed');
+        console.log(`  Primary result: "${solution}"`);
+        if (alternatives.length > 0) {
+            console.log(`  Alternatives: ${alternatives.join(', ')}`);
+        }
+
+        // Step 4: Validate and smart correction
         if (solution.includes('W') && solution.length === 4) {
             const versionWithV = solution.replace(/W/g, 'V');
             if (alternatives.includes(versionWithV)) {
