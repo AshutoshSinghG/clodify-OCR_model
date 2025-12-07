@@ -131,10 +131,28 @@ app.post('/', async (req, res) => {
             }
         }
 
+        // CRITICAL: Strict length validation
+        if (solution.length < 4 || solution.length > 6) {
+            console.error(`❌ Invalid solution length: ${solution.length} characters ("${solution}")`);
+
+            // Try to extract exactly 4 characters if too long
+            if (solution.length > 6) {
+                const match = solution.match(/[A-Z]{4}/);
+                if (match) {
+                    solution = match[0];
+                    console.log(`✂️ Extracted 4 characters: "${solution}"`);
+                } else {
+                    throw new Error(`Solution too long (${solution.length} chars): "${solution}"`);
+                }
+            } else {
+                throw new Error(`Solution too short (${solution.length} chars): "${solution}"`);
+            }
+        }
+
         const processingTime = Date.now() - startTime;
         console.log(`\n✅ Request ${requestId} completed`);
         console.log(`📊 Total processing time: ${processingTime}ms`);
-        console.log(`🎯 Final solution: "${solution}"`);
+        console.log(`🎯 Final solution: "${solution}" (${solution.length} characters)`);
         console.log('========================================\n');
 
         // Return clean response (only solution field)
