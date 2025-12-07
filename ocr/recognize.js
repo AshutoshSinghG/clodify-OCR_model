@@ -8,6 +8,71 @@ const Tesseract = require('tesseract.js');
  */
 
 /**
+ * Common OCR character confusions
+ * Maps commonly confused characters to their possible alternatives
+ */
+const CHARACTER_CONFUSIONS = {
+    'W': ['VV', 'V'],  // W is often confused with VV or V
+    'VV': ['W'],       // VV might be W
+    'I': ['1', 'l'],   // I vs 1 vs lowercase L
+    '1': ['I', 'l'],
+    'l': ['I', '1'],
+    'O': ['0'],        // O vs 0
+    '0': ['O'],
+    'S': ['5'],        // S vs 5
+    '5': ['S'],
+    'Z': ['2'],        // Z vs 2
+    '2': ['Z'],
+    'B': ['8'],        // B vs 8
+    '8': ['B']
+};
+
+/**
+ * Generates possible corrections for OCR text
+ * by considering common character confusions
+ * 
+ * @param {string} text - OCR text to correct
+ * @returns {Array<string>} - Array of possible corrections
+ */
+function generateCorrectionVariants(text) {
+    const variants = [text]; // Always include original
+
+    // Check for W -> V correction (most common issue)
+    if (text.includes('W')) {
+        // Try replacing W with V
+        variants.push(text.replace(/W/g, 'V'));
+
+        // Try replacing each W individually
+        for (let i = 0; i < text.length; i++) {
+            if (text[i] === 'W') {
+                const corrected = text.substring(0, i) + 'V' + text.substring(i + 1);
+                variants.push(corrected);
+            }
+        }
+    }
+
+    // Check for VV -> W correction
+    if (text.includes('VV')) {
+        variants.push(text.replace(/VV/g, 'W'));
+    }
+
+    // Check for other common confusions
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (CHARACTER_CONFUSIONS[char]) {
+            for (const alternative of CHARACTER_CONFUSIONS[char]) {
+                const corrected = text.substring(0, i) + alternative + text.substring(i + 1);
+                if (!variants.includes(corrected)) {
+                    variants.push(corrected);
+                }
+            }
+        }
+    }
+
+    return variants;
+}
+
+/**
  * Recognizes text using a specific PSM mode
  * 
  * @param {Buffer} imageBuffer - Preprocessed image buffer
@@ -44,7 +109,7 @@ async function recognizeWithConfig(imageBuffer, psmMode, whitelist = 'ABCDEFGHIJ
  * Recognizes text using multiple PSM strategies
  * 
  * @param {Buffer} imageBuffer - Preprocessed image buffer
- * @returns {Promise<string>} - Recognized and cleaned text
+ * @returns {Promise<Object>} - {text: string, variants: Array<string>}
  */
 async function recognizeWithTesseract(imageBuffer) {
     try {
@@ -58,6 +123,8 @@ async function recognizeWithTesseract(imageBuffer) {
         let bestResult = '';
         let bestLength = 0;
         let bestRawText = '';
+        let bestConfidence = 0;
+        const allVariants = new Set();
 
         // Try multiple PSM modes to find the best result
         for (const strategy of strategies) {
@@ -69,17 +136,31 @@ async function recognizeWithTesseract(imageBuffer) {
                 console.log(`  Raw text: "${text}"`);
                 console.log(`  Cleaned: "${cleaned}" (confidence: ${confidence?.toFixed(2)}%)`);
 
-                // Keep the result with the most characters (likely more accurate)
-                if (cleaned.length > bestLength) {
+                // Generate correction variants
+                const variants = generateCorrectionVariants(cleaned);
+                variants.forEach(v => allVariants.add(v));
+                console.log(`  Variants: ${variants.join(', ')}`);
+
+                // Keep the result with highest confidence and good length
+                if (cleaned.length >= 4 && cleaned.length <= 6 && confidence > bestConfidence) {
+                    bestConfidence = confidence;
+                    bestLength = cleaned.length;
+                    bestResult = cleaned;
+                    bestRawText = text;
+                } else if (cleaned.length > bestLength) {
+                    // Fallback to length if confidence is similar
                     bestLength = cleaned.length;
                     bestResult = cleaned;
                     bestRawText = text;
                 }
 
-                // If we got a good result (4-6 chars), we can stop
-                if (cleaned.length >= 4 && cleaned.length <= 6) {
-                    console.log(`  ✓ Found valid result: "${cleaned}"`);
-                    return cleaned;
+                // If we got a high-confidence result, we can stop
+                if (cleaned.length >= 4 && cleaned.length <= 6 && confidence > 85) {
+                    console.log(`  ✓ Found high-confidence result: "${cleaned}"`);
+                    return {
+                        text: cleaned,
+                        variants: Array.from(allVariants).filter(v => v.length >= 4 && v.length <= 6)
+                    };
                 }
             } catch (err) {
                 console.log(`  Strategy ${strategy.name} failed:`, err.message);
@@ -88,8 +169,11 @@ async function recognizeWithTesseract(imageBuffer) {
 
         // If no strategy produced a valid result, return the best we got
         if (bestResult.length > 0) {
-            console.log(`  Using best result: "${bestResult}" (from raw: "${bestRawText}")`);
-            return bestResult;
+            console.log(`  Using best result: "${bestResult}" (from raw: "${bestRawText}", confidence: ${bestConfidence?.toFixed(2)}%)`);
+            return {
+                text: bestResult,
+                variants: Array.from(allVariants).filter(v => v.length >= 4 && v.length <= 6)
+            };
         }
 
         throw new Error('OCR returned empty text from all strategies');
@@ -119,18 +203,21 @@ function cleanOCROutput(rawText) {
 }
 
 /**
- * Main OCR function with retry logic
+ * Main OCR function with retry logic and correction variants
  * 
  * @param {Buffer} imageBuffer - Preprocessed image buffer
- * @returns {Promise<string>} - Recognized text
+ * @returns {Promise<Object>} - {solution: string, alternatives: Array<string>}
  */
 async function recognizeText(imageBuffer) {
     try {
         // Primary attempt with Tesseract (tries multiple PSM modes)
         const result = await recognizeWithTesseract(imageBuffer);
 
-        if (result && result.length >= 1) {
-            return result;
+        if (result.text && result.text.length >= 1) {
+            return {
+                solution: result.text,
+                alternatives: result.variants || []
+            };
         }
 
         throw new Error('OCR returned insufficient text');
@@ -143,5 +230,6 @@ async function recognizeText(imageBuffer) {
 module.exports = {
     recognizeText,
     recognizeWithTesseract,
-    cleanOCROutput
+    cleanOCROutput,
+    generateCorrectionVariants
 };

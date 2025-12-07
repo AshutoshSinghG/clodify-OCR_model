@@ -3,7 +3,7 @@ const sharp = require('sharp');
 /**
  * Preprocesses the CAPTCHA image to improve OCR accuracy
  * 
- * Standard preprocessing pipeline for most CAPTCHAs
+ * Standard preprocessing pipeline optimized for V vs W distinction
  * 
  * @param {string} base64Image - Base64 encoded image string
  * @returns {Promise<Buffer>} - Processed image buffer ready for OCR
@@ -21,36 +21,39 @@ async function preprocessImage(base64Image) {
         console.log(`  Original image: ${metadata.width}x${metadata.height}, format: ${metadata.format}`);
 
         // Apply preprocessing pipeline using Sharp
+        // Enhanced for better V vs W distinction
         const processedBuffer = await sharp(imageBuffer)
             // Convert to grayscale (removes color noise)
             .grayscale()
 
-            // Increase contrast significantly
-            .linear(1.5, -(128 * 1.5) + 128)
+            // Increase contrast significantly - helps distinguish V from W
+            .linear(1.8, -(128 * 1.8) + 128)
 
             // Normalize to improve contrast
             .normalize()
 
             // Resize BEFORE thresholding (helps with OCR accuracy)
+            // Using larger size for better V/W distinction
             .resize({
-                width: 600,
-                height: 300,
+                width: 800,
+                height: 400,
                 fit: 'contain',
                 background: { r: 255, g: 255, b: 255, alpha: 1 },
                 kernel: 'lanczos3'
             })
 
             // Apply threshold to create binary image
-            .threshold(140)
+            // Using lower threshold to preserve character details
+            .threshold(130)
 
-            // Remove noise with median filter
-            .median(2)
+            // Remove noise with median filter (smaller kernel to preserve details)
+            .median(1)
 
-            // Sharpen to enhance edges of characters
+            // Sharpen to enhance edges of characters - critical for V vs W
             .sharpen({
-                sigma: 2.0,
-                m1: 1.0,
-                m2: 1.0
+                sigma: 2.5,
+                m1: 1.5,
+                m2: 1.5
             })
 
             // Output as PNG buffer
@@ -89,20 +92,20 @@ async function preprocessImageAggressive(base64Image) {
 
             // Resize first with high quality
             .resize({
-                width: 800,
-                height: 400,
+                width: 1000,
+                height: 500,
                 fit: 'contain',
                 background: { r: 255, g: 255, b: 255, alpha: 1 },
                 kernel: 'lanczos3'
             })
 
-            // Very aggressive threshold
-            .threshold(160)
+            // Moderate threshold to preserve details
+            .threshold(135)
 
-            // Strong median filter for noise
-            .median(3)
+            // Minimal noise reduction
+            .median(1)
 
-            // Very strong sharpening
+            // Very strong sharpening for edge enhancement
             .sharpen({
                 sigma: 3.0,
                 m1: 2.0,

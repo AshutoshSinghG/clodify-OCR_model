@@ -52,7 +52,7 @@ app.get('/', (req, res) => {
  */
 app.post('/', async (req, res) => {
     const startTime = Date.now();
-    const requestId = Math.random().toString(36).substring(7); // Unique request ID
+    const requestId = Math.random().toString(36).substring(7);
 
     try {
         // Validate request body
@@ -91,8 +91,14 @@ app.post('/', async (req, res) => {
 
         // Step 2: Perform OCR
         console.log('\n[2/3] Performing OCR recognition...');
-        let solution = await recognizeText(processedImage);
+        let ocrResult = await recognizeText(processedImage);
+        let solution = ocrResult.solution;
+        let alternatives = ocrResult.alternatives || [];
+
         console.log(`✓ OCR completed: "${solution}"`);
+        if (alternatives.length > 0) {
+            console.log(`📋 Alternative interpretations: ${alternatives.join(', ')}`);
+        }
 
         // Step 3: Validate and return
         console.log('\n[3/3] Validating result...');
@@ -106,9 +112,23 @@ app.post('/', async (req, res) => {
             fs.writeFileSync(debugPathAggressive, processedImageAggressive);
             console.log(`💾 Aggressive debug image saved: ${debugPathAggressive}`);
 
-            solution = await recognizeText(processedImageAggressive);
+            ocrResult = await recognizeText(processedImageAggressive);
+            solution = ocrResult.solution;
+            alternatives = ocrResult.alternatives || [];
 
             console.log(`✓ Aggressive OCR result: "${solution}"`);
+            if (alternatives.length > 0) {
+                console.log(`📋 Aggressive alternatives: ${alternatives.join(', ')}`);
+            }
+        }
+
+        // Smart correction: Prefer V over W in 4-letter words
+        if (solution.includes('W') && solution.length === 4) {
+            const versionWithV = solution.replace(/W/g, 'V');
+            if (alternatives.includes(versionWithV)) {
+                console.log(`🔄 Smart correction: "${solution}" -> "${versionWithV}" (V is more common than W)`);
+                solution = versionWithV;
+            }
         }
 
         const processingTime = Date.now() - startTime;
@@ -175,7 +195,7 @@ app.listen(PORT, () => {
     console.log(`Health Check: http://localhost:${PORT}/`);
     console.log(`OCR Endpoint: POST http://localhost:${PORT}/`);
     console.log(`Time: ${new Date().toISOString()}`);
-    console.log('✨ Debug mode enabled - images saved as debug-<ID>.png');
+    console.log('✨ V/W correction enabled');
     console.log('========================================\n');
 });
 
