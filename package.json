@@ -1,0 +1,29 @@
+{
+    "name": "ocr-captcha-solver",
+    "version": "1.0.0",
+    "description": "OCR CAPTCHA solving backend service using Node.js + Express",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js",
+        "dev": "node index.js"
+    },
+    "keywords": [
+        "ocr",
+        "captcha",
+        "tesseract",
+        "express",
+        "image-processing"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "cors": "^2.8.5",
+        "express": "^4.22.1",
+        "morgan": "^1.10.1",
+        "sharp": "^0.33.5",
+        "tesseract.js": "^5.1.1"
+    },
+    "devDependencies": {
+        "axios": "^1.13.2"
+    }
+}
