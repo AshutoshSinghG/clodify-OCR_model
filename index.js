@@ -154,7 +154,7 @@ app.post('/', async (req, res) => {
         }
 
         // CRITICAL: Strict length validation
-        if (solution.length < 4 || solution.length > 6) {
+        if (solution.length < 3 || solution.length > 6) {
             console.error(`❌ Invalid solution length: ${solution.length} characters ("${solution}")`);
 
             // Try to extract exactly 4 characters if too long
@@ -164,10 +164,18 @@ app.post('/', async (req, res) => {
                     solution = match[0];
                     console.log(`✂️ Extracted 4 characters: "${solution}"`);
                 } else {
-                    throw new Error(`Solution too long (${solution.length} chars): "${solution}"`);
+                    return res.status(422).json({
+                        error: 'Invalid OCR result',
+                        message: `Solution too long (${solution.length} chars) and could not extract valid 4-character sequence`,
+                        requestId: requestId
+                    });
                 }
             } else {
-                throw new Error(`Solution too short (${solution.length} chars): "${solution}"`);
+                return res.status(422).json({
+                    error: 'Invalid OCR result',
+                    message: `Solution too short (${solution.length} chars). Minimum 3 characters required.`,
+                    requestId: requestId
+                });
             }
         }
 
